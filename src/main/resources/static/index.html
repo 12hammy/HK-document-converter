@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HK File Converter</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --background: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --text-secondary: #475569;
+            --border: #e2e8f0;
+            --success: #16a34a;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--background);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 550px;
+            padding: 20px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            padding: 32px;
+            border: 1px solid var(--border);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text);
+            margin: 0 0 8px 0;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text);
+        }
+
+        input[type="file"] {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            box-sizing: border-box;
+            background-color: #fafafa;
+        }
+
+        input[type="file"]:hover {
+            border-color: var(--primary);
+        }
+
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background-color: var(--card-bg);
+            font-size: 14px;
+            color: var(--text);
+            outline: none;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        select:focus {
+            border-color: var(--primary);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            box-sizing: border-box;
+        }
+
+        .btn:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .btn:disabled {
+            background-color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+            text-align: center;
+        }
+
+        .status.loading {
+            display: block;
+            background-color: #eff6ff;
+            color: var(--primary);
+            border: 1px solid #bfdbfe;
+        }
+
+        .status.success {
+            display: block;
+            background-color: #f0fdf4;
+            color: var(--success);
+            border: 1px solid #bbf7d0;
+        }
+
+        .status.error {
+            display: block;
+            background-color: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <div class="header">
+            <h1>HK File Converter</h1>
+            <p>Badilisha mfumo wa faili lolote kwenda lolote haraka na salama</p>
+        </div>
+
+        <div class="form-group">
+            <label for="fileInput">Chagua Faili Lako:</label>
+            <input type="file" id="fileInput" required>
+        </div>
+
+        <div class="form-group">
+            <label for="targetExtension">Badilisha Kwenda (Target Format):</label>
+            <select id="targetExtension">
+                <!-- CHAGUO KUTOKA KWENYE PDF -->
+                <option value="docx">Word Document (.docx) [Kutoka PDF]</option>
+                <option value="xlsx">Excel Sheet (.xlsx) [Kutoka PDF]</option>
+                <option value="jpg">Picha (.jpg) [Kutoka PDF]</option>
+                <option value="txt">Plain Text (.txt) [Kutoka PDF]</option>
+
+                <!-- CHAGUO KUTOKA KWENYE MIFUMO MINGINE KWENDA PDF -->
+                <option value="pdf_from_word">PDF Document (.pdf) [Kutoka Word]</option>
+                <option value="pdf_from_image">PDF Document (.pdf) [Kutoka Picha - PNG/JPG]</option>
+                <option value="pdf_from_excel">PDF Document (.pdf) [Kutoka Excel - XLSX]</option>
+                <option value="docx">Word Document (.docx) [Kutoka Excel - XLSX]</option>
+
+                <!-- CHAGUO LA DATA -->
+                <option value="json">JSON (.json) [Kutoka CSV / Excel]</option>
+                <option value="txt">Plain Text (.txt) [Kutoka Word]</option>
+            </select>
+        </div>
+
+        <button class="btn" id="convertBtn" onclick="processConversion()">Anza Kubadilisha</button>
+
+        <div id="statusBox" class="status"></div>
+    </div>
+</div>
+
+<script>
+    async function processConversion() {
+        const fileInput = document.getElementById('fileInput');
+        const targetExtension = document.getElementById('targetExtension').value;
+        const statusBox = document.getElementById('statusBox');
+        const convertBtn = document.getElementById('convertBtn');
+
+        if (fileInput.files.length === 0) {
+            showStatus('Tafadhali chagua faili kwanza!', 'error');
+            return;
+        }
+
+        const file = fileInput.files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('targetExt', targetExtension);
+
+        convertBtn.disabled = true;
+        showStatus('Inabadilisha faili... Tafadhali subiri kidogo.', 'loading');
+
+        try {
+            const response = await fetch('http://localhost:8080/api/converter/convert', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error('Hitilafu imetokea kwenye server au format hailingani.');
+            }
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+
+            const originalName = file.name.substring(0, file.name.lastIndexOf('.'));
+
+            // Kurekebisha extension ya download isisomeke kama pdf_from_image
+            let finalExt = targetExtension;
+            if (targetExtension.startsWith("pdf_from_")) {
+                finalExt = "pdf";
+            }
+
+            a.download = `${originalName}_converted.${finalExt}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            showStatus('Hongera! Ubadilishaji umekamilika na faili limepakuliwa.', 'success');
+        } catch (error) {
+            showStatus('Kosa: Ubadilishaji umeshindwa. Hakikisha aina ya faili inafaa.', 'error');
+            console.error(error);
+        } finally {
+            convertBtn.disabled = false;
+        }
+    }
+
+    function showStatus(message, type) {
+        const statusBox = document.getElementById('statusBox');
+        statusBox.className = `status ${type}`;
+        statusBox.innerText = message;
+    }
+</script>
+
+</body>
+</html>
