@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 
 @Service
@@ -20,14 +21,23 @@ public class UniversalConverterService {
         String sourceExt = getFileExtension(originalName).toLowerCase();
         targetExt = targetExt.toLowerCase();
 
+        // MWONGOZO: Amri hizi zitalazimisha terminal ikuambie nini kinaingia
+        System.out.println("===> SOURCE EXTENSION: " + sourceExt);
+        System.out.println("===> TARGET EXTENSION: " + targetExt);
+
+
         // 1. Data to JSON
         if (sourceExt.equals("csv") && targetExt.equals("json")) return convertCsvToJson(fileBytes);
         if (sourceExt.equals("xlsx") && targetExt.equals("json")) return convertExcelToJson(fileBytes);
 
-        // 2. Mifumo tofauti kwenda PDF (Kulingana na HTML Select targetExt)
+        // 2. Mifumo tofauti kwenda PDF (SASA INAKUBALI CSV PIA!)
         if ((sourceExt.equals("png") || sourceExt.equals("jpg") || sourceExt.equals("jpeg")) && targetExt.equals("pdf_from_image")) return convertImageToPdf(fileBytes);
         if (sourceExt.equals("docx") && targetExt.equals("pdf_from_word")) return convertWordToPdf(fileBytes);
-        if (sourceExt.equals("xlsx") && targetExt.equals("pdf_from_excel")) return convertExcelToPdf(fileBytes);
+
+        // HAPA TUMEREKEBISHA: Inaruhusu XLSX AU CSV kwenda kwenye PDF
+        if ((sourceExt.equals("xlsx") || sourceExt.equals("csv")) && targetExt.equals("pdf_from_excel")) {
+            return convertExcelToPdf(fileBytes, sourceExt);
+        }
 
         // 3. PDF kwenda Mifumo mingine
         if (sourceExt.equals("pdf") && targetExt.equals("docx")) return convertPdfToWord(fileBytes);
@@ -37,27 +47,35 @@ public class UniversalConverterService {
 
         // 4. Mifumo mingine kwenda Word / Text
         if (sourceExt.equals("docx") && targetExt.equals("txt")) return convertWordToText(fileBytes);
-        if (sourceExt.equals("xlsx") && targetExt.equals("docx")) return convertExcelToWord(fileBytes); // MPYA!
+        if ((sourceExt.equals("xlsx") || sourceExt.equals("csv")) && targetExt.equals("docx")) {
+            return convertExcelToWord(fileBytes, sourceExt); // Tumeongeza parameter ya sourceExt hapa
+        }
 
         throw new IllegalArgumentException("Ubadilishaji kutoka ." + sourceExt + " kwenda ." + targetExt + " haujatengenezwa bado!");
     }
 
-    private byte[] convertExcelToPdf(byte[] excelBytes) throws Exception {
+    // HAPA TUMEREKEBISHA: Tumeongeza parameter ya 'sourceExt' ili ijue kama inasoma CSV au XLSX
+    private byte[] convertExcelToPdf(byte[] fileBytes, String sourceExt) throws Exception {
         Workbook wb = null;
         com.lowagie.text.Document document = null;
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
         try {
-            wb = new XSSFWorkbook(new ByteArrayInputStream(excelBytes));
+            // Likiwa faili la CSV, tunaligeuza kwanza kuwa muundo wa Excel (Workbook) ndani ya RAM
+            if (sourceExt.equals("csv")) {
+                wb = convertCsvToWorkbook(fileBytes);
+            } else {
+                wb = new XSSFWorkbook(new ByteArrayInputStream(fileBytes));
+            }
+
             Sheet sheet = wb.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
 
             // Kutengeneza karatasi ya PDF kwa kutumia OpenPDF
-            document = new com.lowagie.text.Document(com.lowagie.text.PageSize.A4.rotate()); // Landscape ili Excel ienee
+            document = new com.lowagie.text.Document(com.lowagie.text.PageSize.A4.rotate()); // Landscape
             com.lowagie.text.pdf.PdfWriter.getInstance(document, out);
             document.open();
 
-            // Pata idadi ya seli (columns) kwenye safu ya kwanza
             int maxCols = 0;
             for (Row row : sheet) {
                 if (row.getLastCellNum() > maxCols) {
@@ -67,7 +85,6 @@ public class UniversalConverterService {
 
             if (maxCols == 0) maxCols = 1;
 
-            // Tengeneza jedwali rasmi la PDF lenye idadi sahihi ya seli
             com.lowagie.text.pdf.PdfPTable table = new com.lowagie.text.pdf.PdfPTable(maxCols);
             table.setWidthPercentage(100);
 
@@ -89,6 +106,9 @@ public class UniversalConverterService {
             return out.toByteArray();
 
         } catch (Exception e) {
+            // Inalazimisha kosa lisiloonekana lichapishwe kwenye Render Logs kwa usalama wetu!
+            System.err.println("[EXCEL/CSV TO PDF ERROR]: " + e.getMessage());
+            e.printStackTrace();
             throw new RuntimeException("Kosa la ubadilishaji: " + e.getMessage(), e);
         } finally {
             if (wb != null) wb.close();
@@ -97,21 +117,107 @@ public class UniversalConverterService {
         }
     }
 
+    // KAZI MPYA: Inabadilisha herufi za CSV kuwa Workbook ya Excel ili isomeke kwenye jedwali la PDF bila kufeli
+    private Workbook convertCsvToWorkbook(byte[] csvBytes) throws Exception {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("CSV Data");
 
-
-    private byte[] convertExcelToWord(byte[] excelBytes) throws Exception {
-        try (Workbook wb = new XSSFWorkbook(new ByteArrayInputStream(excelBytes)); XWPFDocument wordDoc = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Sheet sheet = wb.getSheetAt(0);
-            for (Row row : sheet) {
-                StringBuilder rowText = new StringBuilder();
-                for (Cell cell : row) rowText.append(cell.toString().trim()).append("\t");
-                wordDoc.createParagraph().createRun().setText(rowText.toString().trim());
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new ByteArrayInputStream(csvBytes), StandardCharsets.UTF_8))) {
+            String line;
+            int rowIndex = 0;
+            while ((line = reader.readLine()) != null) {
+                Row row = sheet.createRow(rowIndex++);
+                // Tenganisha maneno kwa kutumia koma (CSV Standard)
+                String[] values = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
+                for (int colIndex = 0; colIndex < values.length; colIndex++) {
+                    Cell cell = row.createCell(colIndex);
+                    // Ondoa alama za nukuu zilizozidi kwenye CSV
+                    String cleanValue = values[colIndex].trim().replaceAll("^\"|\"$", "");
+                    cell.setCellValue(cleanValue);
+                }
             }
-            wordDoc.write(out); return out.toByteArray();
+        }
+        return workbook;
+    }
+
+    private byte[] convertExcelToWord(byte[] fileBytes, String sourceExt) throws Exception {
+        System.out.println("[INFO] Inabadilisha " + sourceExt.toUpperCase() + " kwenda Word (.docx)...");
+
+        // TAYARISHA DOCKUMENT YA WORD
+        try (XWPFDocument wordDoc = new XWPFDocument();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            // --- NJIA A: KAMA FAILI NI CSV ---
+            if (sourceExt.equals("csv")) {
+                System.out.println("[INFO] Inasoma data za CSV moja kwa moja...");
+
+                // Kusoma kila mstari wa CSV kwa kutumia standard encoding
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(new ByteArrayInputStream(fileBytes), java.nio.charset.StandardCharsets.UTF_8))) {
+                    String line;
+
+                    // Kwenye Word, kama hatuweki jedwali gumu, tunaweza kuandika mistari kwa mtindo wa aya (paragraphs) ulio safi
+                    while ((line = reader.readLine()) != null) {
+                        // Tenganisha maneno kwa koma au semicolon (Inasoma zote mbili kulinda usalama wako!)
+                        String[] columns = line.split("[,;](?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
+
+                        XWPFParagraph paragraph = wordDoc.createParagraph();
+                        XWPFRun run = paragraph.createRun();
+
+                        StringBuilder rowContent = new StringBuilder();
+                        for (String col : columns) {
+                            // Safisha alama za nukuu zilizozidi
+                            String cleanCol = col.trim().replaceAll("^\"|\"$", "");
+                            rowContent.append(cleanCol).append("\t\t"); // Weka tab mbili ili yatengane vizuri kama safu
+                        }
+
+                        run.setText(rowContent.toString().trim());
+                    }
+                }
+            }
+            // --- NJIA B: KAMA FAILI NI EXCEL (.XLSX) ---
+            else {
+                System.out.println("[INFO] Inasoma data za Excel (.xlsx) kwa kutumia Apache POI...");
+                try (Workbook wb = new XSSFWorkbook(new ByteArrayInputStream(fileBytes))) {
+                    Sheet sheet = wb.getSheetAt(0);
+                    DataFormatter formatter = new DataFormatter();
+
+                    for (Row row : sheet) {
+                        XWPFParagraph paragraph = wordDoc.createParagraph();
+                        XWPFRun run = paragraph.createRun();
+                        StringBuilder rowText = new StringBuilder();
+
+                        for (Cell cell : row) {
+                            rowText.append(formatter.formatCellValue(cell)).append("\t\t");
+                        }
+                        run.setText(rowText.toString().trim());
+                    }
+                }
+            }
+
+            // ANDIKA MATOKEO KWENYE FILE LA WORD LINADOWNLOADIKA
+            wordDoc.write(out);
+            return out.toByteArray();
+
+        } catch (Exception e) {
+            // Amri hii italazimisha kosa lolote linalofanya ifeli lionekane sasa hivi kwenye terminal ya IntelliJ!
+            System.err.println("[CRITICAL ERROR IN CONVERSION]: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
         }
     }
 
-    private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
+
+    // Saidia kuweka njia ya kupata jina la faili
+    private String getFileExtension(String fileName) {
+        if (fileName == null || !fileName.contains(".")) return "";
+        return fileName.substring(fileName.lastIndexOf(".") + 1);
+    }
+
+
+
+
+
+private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
         try (PDDocument doc = PDDocument.load(pdfBytes); Workbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = wb.createSheet("Data"); String pdfText = new PDFTextStripper().getText(doc);
             String[] lines = pdfText.split("\n"); int rowNum = 0;
@@ -229,9 +335,5 @@ public class UniversalConverterService {
             return out.toByteArray();
         }
     }
-
-    private String getFileExtension(String fileName) {
-        if (fileName == null || !fileName.contains(".")) return "";
-        return fileName.substring(fileName.lastIndexOf(".") + 1);
-    }
 }
+
