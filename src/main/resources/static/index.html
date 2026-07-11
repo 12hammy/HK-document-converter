@@ -220,7 +220,7 @@
         showStatus('Inabadilisha faili... Tafadhali subiri kidogo.', 'loading');
 
         try {
-            const response = await fetch('http://localhost:8080/api/converter/convert', {
+            const response = await fetch('/api/converter/convert', {
                 method: 'POST',
                 body: formData
             });
