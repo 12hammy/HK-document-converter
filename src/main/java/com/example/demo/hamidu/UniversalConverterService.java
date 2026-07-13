@@ -290,17 +290,26 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
     }
 
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Washa Injini Salama: Fixed Stream OCR Engine...");
+        System.out.println("[INFO] WASHA INJINI YA MWISHO: Ultimate Multi-Fallback OCR Engine...");
 
         try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
              XWPFDocument wordDoc = new XWPFDocument();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
+            // 1. Kagua kama PDF ina herufi halisi za kompyuta
+            boolean isScannedOrImage = true;
             org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
             String normalText = stripper.getText(pdfDoc);
 
-            if (normalText == null || normalText.trim().isEmpty() || normalText.trim().length() < 10) {
-                System.out.println("[INFO] PDF ni picha au mwandiko. Inatuma kwa njia salama ya Bytes...");
+            if (normalText != null && normalText.matches(".*[a-zA-Z0-9].*")) {
+                isScannedOrImage = false;
+            }
+
+            StringBuilder finalExtractedText = new StringBuilder();
+
+            // 2. KAMA NI PICHA AU SCANNED PDF - WASHA MTEGO WA KWANZA WA OCR
+            if (isScannedOrImage) {
+                System.out.println("[INFO] Imethibitishwa: Scanned PDF. Inawasha MTEGO WA 1 (Multipart PDF Stream)...");
 
                 String boundary = "CleanBoundary" + System.currentTimeMillis();
                 URL url = new URL("https://ocr.space");
@@ -311,44 +320,35 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                 conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 
                 try (OutputStream os = conn.getOutputStream()) {
-                    // 1. Tuma API KEY (Badilisha K87654321888 uweke Key yako ya Email)
                     os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
                     os.write("Content-Disposition: form-data; name=\"apikey\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-                    os.write("K81976549088957\r\n".getBytes(StandardCharsets.UTF_8));
+                    os.write("K81976549088957\r\n".getBytes(StandardCharsets.UTF_8)); // API KEY YAKO HALISI
 
-                    // 2. Tuma LUGHA
                     os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
                     os.write("Content-Disposition: form-data; name=\"language\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
                     os.write("eng\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // 3. Tuma IS HANDWRITTEN
                     os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
                     os.write("Content-Disposition: form-data; name=\"isHandwritten\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
                     os.write("true\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // 4. Tuma ENGINE
                     os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
                     os.write("Content-Disposition: form-data; name=\"OcrEngine\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
                     os.write("2\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // 5. Tuma SCALE
                     os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
                     os.write("Content-Disposition: form-data; name=\"scale\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
                     os.write("true\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // 6. Tuma FAILI LENYEWE LA PDF SALAMA
                     os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
                     os.write("Content-Disposition: form-data; name=\"file\"; filename=\"document.pdf\"\r\n".getBytes(StandardCharsets.UTF_8));
                     os.write("Content-Type: application/pdf\r\n\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // Hapa tunatupa bytes za PDF bila kuvurugwa na PrintWriter yoyote!
                     os.write(pdfBytes);
-
                     os.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
                     os.flush();
                 }
 
-                // Soma majibu na uhakikishe tunachapa log ili tuone kama API inakubali
                 InputStream is = (conn.getResponseCode() >= 400) ? conn.getErrorStream() : conn.getInputStream();
                 if (is != null) {
                     try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
@@ -358,34 +358,95 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                             response.append(responseLine.trim());
                         }
 
-                        // Hapa lazima utaona maandishi ya JSON kwenye logs za Render!
-                        System.out.println("[API FINAL RESPONSE]: " + response.toString());
-
                         JSONObject jsonResponse = new JSONObject(response.toString());
                         if (jsonResponse.has("ParsedResults")) {
                             org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
                             for (int i = 0; i < parsedResults.length(); i++) {
                                 String parsedText = parsedResults.getJSONObject(i).getString("ParsedText");
-
                                 if (parsedText != null && !parsedText.trim().isEmpty()) {
-                                    String[] lines = parsedText.split("\r\n|\n");
-                                    for (String line : lines) {
-                                        if (line.trim().length() > 0) {
-                                            XWPFParagraph p = wordDoc.createParagraph();
-                                            p.createRun().setText(line.trim());
-                                        }
+                                    finalExtractedText.append(parsedText);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. MTEGO WA ZIADA (FALLBACK): Kama njia ya kwanza imerudisha tupu kabisa, washa Mtego wa Pili wa Picha!
+                if (finalExtractedText.toString().trim().isEmpty()) {
+                    System.out.println("[WARN] MTEGO WA 1 UMERUDISHA TUPU! Inawasha MTEGO WA 2 (Image-Render API Fallback)...");
+
+                    org.apache.pdfbox.rendering.PDFRenderer pdfRenderer = new org.apache.pdfbox.rendering.PDFRenderer(pdfDoc);
+                    // Geuza ukurasa wa 1 kuwa picha nyepesi isiyozima RAM ya Render (150 DPI RGB)
+                    java.awt.image.BufferedImage bim = pdfRenderer.renderImageWithDPI(0, 150, org.apache.pdfbox.rendering.ImageType.RGB);
+
+                    ByteArrayOutputStream imageStream = new ByteArrayOutputStream();
+                    javax.imageio.ImageIO.write(bim, "jpg", imageStream);
+                    String base64Image = Base64.getEncoder().encodeToString(imageStream.toByteArray());
+
+                    URL fallbackUrl = new URL("https://ocr.space");
+                    HttpURLConnection fallbackConn = (HttpURLConnection) fallbackUrl.openConnection();
+                    fallbackConn.setRequestMethod("POST");
+                    fallbackConn.setDoOutput(true);
+                    fallbackConn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+
+                    StringBuilder postData = new StringBuilder();
+                    postData.append("apikey=").append(URLEncoder.encode("K81976549088957", "UTF-8"));
+                    postData.append("&language=").append(URLEncoder.encode("eng", "UTF-8"));
+                    postData.append("&isHandwritten=true");
+                    postData.append("&OcrEngine=2");
+                    postData.append("&base64Image=").append(URLEncoder.encode("data:image/jpeg;base64," + base64Image, "UTF-8"));
+
+                    byte[] postDataBytes = postData.toString().getBytes(StandardCharsets.UTF_8);
+                    fallbackConn.setRequestProperty("Content-Length", String.valueOf(postDataBytes.length));
+
+                    try (OutputStream os = fallbackConn.getOutputStream()) {
+                        os.write(postDataBytes);
+                        os.flush();
+                    }
+
+                    InputStream fis = (fallbackConn.getResponseCode() >= 400) ? fallbackConn.getErrorStream() : fallbackConn.getInputStream();
+                    if (fis != null) {
+                        try (BufferedReader br = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8))) {
+                            StringBuilder response = new StringBuilder();
+                            String responseLine;
+                            while ((responseLine = br.readLine()) != null) {
+                                response.append(responseLine.trim());
+                            }
+
+                            JSONObject jsonResponse = new JSONObject(response.toString());
+                            if (jsonResponse.has("ParsedResults")) {
+                                org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
+                                for (int i = 0; i < parsedResults.length(); i++) {
+                                    String parsedText = parsedResults.getJSONObject(i).getString("ParsedText");
+                                    if (parsedText != null && !parsedText.trim().isEmpty()) {
+                                        finalExtractedText.append(parsedText);
                                     }
                                 }
                             }
                         }
                     }
                 }
+
+                // Andika maandishi yote yaliyopatikana (Kutoka mtego wa 1 au wa 2) kwenda kwenye Word
+                if (finalExtractedText.length() > 0) {
+                    String[] lines = finalExtractedText.toString().split("\r\n|\n");
+                    for (String line : lines) {
+                        if (line.trim().length() > 0) {
+                            XWPFParagraph p = wordDoc.createParagraph();
+                            p.createRun().setText(line.trim());
+                        }
+                    }
+                }
+
             } else {
-                System.out.println("[INFO] Inasoma PDF ya kawaida ya kompyuta...");
+                // Kama PDF ina maandishi safi ya kompyuta tangu mwanzo
+                System.out.println("[INFO] Inasoma PDF ya kawaida yenye herufi za kompyuta...");
                 String[] lines = normalText.split("\n");
                 for (String line : lines) {
-                    XWPFParagraph p = wordDoc.createParagraph();
-                    p.createRun().setText(line.trim());
+                    if (line.trim().length() > 0) {
+                        XWPFParagraph p = wordDoc.createParagraph();
+                        p.createRun().setText(line.trim());
+                    }
                 }
             }
 
