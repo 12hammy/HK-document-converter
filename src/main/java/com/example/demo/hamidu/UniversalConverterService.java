@@ -289,116 +289,122 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
         }
     }
 
+
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Inawasha iLovePDF REST API Engine - Hakuna SDK, Uhakika 100%...");
+        System.out.println("[INFO] Washa Injini ya Mwisho: Scanned PDF & Handwritten Converter...");
 
-        // 1. ANZA SELES (START TASK): Ambia iLovePDF kuwa tunataka kuanza kazi ya pdf to word
-        // HAPA TUMEWEKA ILE KEY YAKO HALISI ULIYOIPATA
-        String publicKey = "project_public_f12d8e5abe88b67b23cae4a6b424620b_8RPw3c6cf23b25808760ba038238ba2865d6c";
+        try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
+             XWPFDocument wordDoc = new XWPFDocument();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
-        URL startUrl = new URL("https://ilovepdf.com");
-        HttpURLConnection startConn = (HttpURLConnection) startUrl.openConnection();
-        startConn.setRequestMethod("GET");
-        startConn.setRequestProperty("Authorization", "Bearer " + publicKey);
+            // 1. Kagua maandishi ya kawaida kwanza
+            org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
+            String normalText = stripper.getText(pdfDoc);
 
-        if (startConn.getResponseCode() != 200) {
-            throw new RuntimeException("iLovePDF Auth Failed! Angalia kama Public Key iko sawa.");
-        }
+            if (normalText == null || normalText.trim().isEmpty() || normalText.trim().length() < 10) {
+                System.out.println("[INFO] PDF ni picha au mwandiko wa mkono. Inatuma Faili halisi kwa API...");
 
-        // Soma Server na Task ID tulizopewa
-        String startResponse = "";
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(startConn.getInputStream()))) {
-            String line;
-            while ((line = br.readLine()) != null) startResponse += line;
-        }
-        org.json.JSONObject startJson = new org.json.JSONObject(startResponse);
-        String server = startJson.getString("server");
-        String taskId = startJson.getString("task");
+                String boundary = "CleanMultipartBoundary" + System.currentTimeMillis();
+                URL url = new URL("https://api8.ocr.space/parse/image");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setDoOutput(true);
+                conn.setDoInput(true);
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 
-        System.out.println("[INFO] Task Imeanzishwa. Server: " + server + " | TaskID: " + taskId);
+                try (OutputStream os = conn.getOutputStream();
+                     PrintWriter writer = new PrintWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8), true)) {
 
-        // 2. PAKIA FAILI (UPLOAD FILE): Tupa bytes za PDF kwenye server ya iLovePDF tuliyopewa
-        String boundary = "===Boundary" + System.currentTimeMillis() + "===";
-        URL uploadUrl = new URL("https://" + server + "/v1/upload");
-        HttpURLConnection uploadConn = (HttpURLConnection) uploadUrl.openConnection();
-        uploadConn.setDoOutput(true);
-        uploadConn.setRequestMethod("POST");
-        uploadConn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+                    // A. API KEY (Weka ile Key yako ya bure hapa badala ya helloworld)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"apikey\"\r\n\r\n");
+                    writer.append("K81976549088957").append("\r\n"); // <-- WEKA ILE KEY YAKO HAPA MOJA KWA MOJA!
 
-        try (OutputStream os = uploadConn.getOutputStream()) {
-            os.write(("--" + boundary + "\r\n").getBytes());
-            os.write(("Content-Disposition: form-data; name=\"task\"\r\n\r\n" + taskId + "\r\n").getBytes());
+                    // B. LUGHA (Tumia 'eng' inayosoma herufi zote za Kilatini za Kiswahili na Kiingereza)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n");
+                    writer.append("eng").append("\r\n");
 
-            os.write(("--" + boundary + "\r\n").getBytes());
-            os.write("Content-Disposition: form-data; name=\"file\"; filename=\"document.pdf\"\r\n".getBytes());
-            os.write("Content-Type: application/pdf\r\n\r\n".getBytes());
-            os.write(pdfBytes);
+                    // C. MWANDIKO WA MKONO (Washa kwa ajili ya herufi za mkono)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"isHandwritten\"\r\n\r\n");
+                    writer.append("true").append("\r\n");
 
-            os.write(("\r\n--" + boundary + "--\r\n").getBytes());
-            os.flush();
-        }
+                    // D. ENGINE (OcrEngine=2 ni maalum na bora zaidi kwa Scanned PDF na mwandiko)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"OcrEngine\"\r\n\r\n");
+                    writer.append("2").append("\r\n");
 
-        String uploadResponse = "";
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(uploadConn.getInputStream()))) {
-            String line;
-            while ((line = br.readLine()) != null) uploadResponse += line;
-        }
-        org.json.JSONObject uploadJson = new org.json.JSONObject(uploadResponse);
-        String serverFilename = uploadJson.getString("server_filename");
+                    // E. AUTO SCALE (Inasaidia kukuza na kusafisha maandishi yenye vivuli au giza)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"scale\"\r\n\r\n");
+                    writer.append("true").append("\r\n");
 
-        System.out.println("[INFO] Faili Limepakiwa Salama Server. Filename: " + serverFilename);
+                    // F. TUPA FAILINA HALISI LA PDF LAKO HAPA (Sio Base64 tena)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"file\"; filename=\"scanned.pdf\"\r\n");
+                    writer.append("Content-Type: application/pdf\r\n\r\n");
+                    writer.flush();
 
-        // 3. CHAKATA OCR (EXECUTE TASK): Ambia mtambo uanze kuigeuza sasa kwa OCR
-        URL execUrl = new URL("https://" + server + "/v1/process");
-        HttpURLConnection execConn = (HttpURLConnection) execUrl.openConnection();
-        execConn.setDoOutput(true);
-        execConn.setRequestMethod("POST");
-        execConn.setRequestProperty("Content-Type", "application/json");
+                    // Andika PDF bytes moja kwa moja bila makosa
+                    os.write(pdfBytes);
+                    os.flush();
 
-        org.json.JSONObject execBody = new org.json.JSONObject();
-        execBody.put("task", taskId);
+                    writer.append("\r\n");
+                    writer.append("--").append(boundary).append("--").append("\r\n");
+                    writer.flush();
+                }
 
-        org.json.JSONObject fileObj = new org.json.JSONObject();
-        fileObj.put("server_filename", serverFilename);
-        fileObj.put("filename", "document.pdf");
+                // Soma majibu kutoka server
+                InputStream is = (conn.getResponseCode() >= 400) ? conn.getErrorStream() : conn.getInputStream();
+                if (is != null) {
+                    try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                        StringBuilder response = new StringBuilder();
+                        String responseLine;
+                        while ((responseLine = br.readLine()) != null) {
+                            response.append(responseLine.trim());
+                        }
 
-        org.json.JSONArray filesArray = new org.json.JSONArray();
-        filesArray.put(fileObj);
-        execBody.put("files", filesArray);
+                        System.out.println("[API RESPONSE]: " + response.toString());
 
-        // WASHA INJINI YA OCR: Lazimisha isome mwandiko wa mkono na scanned pdf kwa ubora wa juu wa iLovePDF
-        // SULUHISHO: Ambia iLovePDF kuwa hii ni Scanned PDF na iwashe OCR kwa lugha ya Kiingereza/Kiswahili
-        execBody.put("ocr", true);
-        execBody.put("language", "eng"); // 'eng' ndio injini mama inayochambua pastpapers na mwandiko vizuri mno!
+                        JSONObject jsonResponse = new JSONObject(response.toString());
+                        if (jsonResponse.has("ParsedResults")) {
+                            org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
+                            for (int i = 0; i < parsedResults.length(); i++) {
+                                String parsedText = parsedResults.getJSONObject(i).getString("ParsedText");
 
-
-        try (OutputStream os = execConn.getOutputStream()) {
-            os.write(execBody.toString().getBytes("UTF-8"));
-            os.flush();
-        }
-
-        if (execConn.getResponseCode() != 200) {
-            throw new RuntimeException("iLovePDF Execution Failed wakati wa kuchakata OCR.");
-        }
-
-        System.out.println("[INFO] OCR Imekamilika Kule Cloud. Inaanza Kupakua Word...");
-
-        // 4. PAKUA FAILI LA WORD (DOWNLOAD FILE)
-        URL downloadUrl = new URL("https://" + server + "/v1/download/" + taskId);
-        HttpURLConnection downloadConn = (HttpURLConnection) downloadUrl.openConnection();
-        downloadConn.setRequestMethod("GET");
-
-        try (InputStream is = downloadConn.getInputStream();
-             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[4096];
-            int bytesRead;
-            while ((bytesRead = is.read(buffer)) != -1) {
-                bos.write(buffer, 0, bytesRead);
+                                if (parsedText != null && !parsedText.trim().isEmpty()) {
+                                    String[] lines = parsedText.split("\r\n|\n");
+                                    for (String line : lines) {
+                                        if (line.trim().length() > 0) {
+                                            XWPFParagraph p = wordDoc.createParagraph();
+                                            p.createRun().setText(line.trim());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                System.out.println("[INFO] Inasoma PDF ya kawaida ya kompyuta...");
+                String[] lines = normalText.split("\n");
+                for (String line : lines) {
+                    XWPFParagraph p = wordDoc.createParagraph();
+                    p.createRun().setText(line.trim());
+                }
             }
-            System.out.println("[SUCCESS] Faili la Word la iLovePDF Liko Tayari!");
-            return bos.toByteArray();
+
+            wordDoc.write(out);
+            return out.toByteArray();
+
+        } catch (Exception e) {
+            System.err.println("[CRITICAL CONVERTER ERROR]: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
         }
     }
+
 
 
 
