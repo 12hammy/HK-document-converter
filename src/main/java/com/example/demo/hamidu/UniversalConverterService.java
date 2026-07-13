@@ -289,26 +289,27 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
 
 
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Inabadilisha PDF kwenda Word kwa kutumia OCR...");
+        System.out.println("[INFO] Inabadilisha PDF kwenda Word kwa kutumia Advanced OCR (English + Swahili)...");
 
-        try (PDDocument pdfDoc = PDDocument.load(new ByteArrayInputStream(pdfBytes));
+        try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
              XWPFDocument wordDoc = new XWPFDocument();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
-            // Jaribu kwanza kusoma kwa njia ya kawaida (Kama ni PDF ya maandishi safi)
-            PDFTextStripper stripper = new PDFTextStripper();
+            // 1. Jaribu kwanza kusoma kwa njia ya kawaida (Kama ni PDF ya maandishi ya kompyuta)
+            org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
             String normalText = stripper.getText(pdfDoc);
 
-            // Kama PDF haina maandishi ya kawaida (ni picha tupu au ya mkono), tumia OCR!
+            // 2. Kama PDF haina maandishi ya kawaida (ni picha au mwandiko wa mkono), washa OCR yenye nguvu
             if (normalText == null || normalText.trim().isEmpty()) {
-                System.out.println("[INFO] PDF haina maandishi ya kawaida. Inaanza kuchakata kurasa kwa OCR...");
+                System.out.println("[INFO] PDF haina maandishi ya kawaida. Inasafisha picha na kuwasha OCR...");
 
                 PDFRenderer pdfRenderer = new PDFRenderer(pdfDoc);
                 Tesseract tesseract = new Tesseract();
-                String os = System.getProperty("os.name").toLowerCase();
 
+                // Kagua mfumo ili kuweka njia sahihi ya mafaili ya lugha
+                String os = System.getProperty("os.name").toLowerCase();
                 if (!os.contains("win")) {
-                    // NJIA MPYA ILIYOBORESHWA: Java itatafuta folda la lugha kila sehemu inayoweza kuwepo Render
+                    // Java itatafuta folda la lugha kila sehemu inayoweza kuwepo Render (Linux)
                     File path1 = new File("/usr/share/tesseract-ocr/5/tessdata");
                     File path2 = new File("/usr/share/tesseract-ocr/4.00/tessdata");
                     File path3 = new File("/usr/share/tesseract-ocr/tessdata");
@@ -323,7 +324,6 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                     } else if (path4.exists()) {
                         tesseract.setDatapath(path4.getAbsolutePath());
                     } else {
-                        // Kama ikikosa kabisa, iangalie folda la kawaida la Linux
                         tesseract.setDatapath("/usr/share/tesseract-ocr/tessdata");
                     }
                 } else {
@@ -331,30 +331,38 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                     tesseract.setDatapath("C:\\Program Files\\Tesseract-OCR\\tessdata");
                 }
 
-                tesseract.setLanguage("eng"); // Kusoma lugha ya Kiingereza / Namba
+                // MABORESHO YAKO: Sasa inasoma Kiingereza na Kiswahili kwa pamoja!
+                tesseract.setLanguage("eng+swa");
 
-                // Piga picha kila ukurasa wa PDF na usome maandishi yaliyomo
+                // Panga mfumo wa kusoma mistari kiotomatiki (Auto Page Segmentation)
+                tesseract.setPageSegMode(3);
+
+                // Piga picha na usome kila ukurasa wa PDF
                 for (int page = 0; page < pdfDoc.getNumberOfPages(); page++) {
-                    System.out.println("[INFO] Inasoma ukurasa wa " + (page + 1) + " kwa OCR...");
+                    System.out.println("[INFO] Inasoma ukurasa wa " + (page + 1) + " kwa ubora wa 400 DPI...");
 
-                    // Geuza ukurasa kuwa picha yenye ubora wa 300 DPI (Safi kwa OCR)
-                    BufferedImage bim = pdfRenderer.renderImageWithDPI(page, 300);
+                    // MABORESHO YA BINARY: Geuza ukurasa kuwa picha kubwa sana yenye weusi na weupe uliokolezwa (BINARY)
+                    // Hii inaondoa madoadoa ya karatasi na vivuli vya giza ili mwandiko uonekane vizuri
+                    BufferedImage bim = pdfRenderer.renderImageWithDPI(page, 400, org.apache.pdfbox.rendering.ImageType.BINARY);
 
-                    // Tesseract inasoma maandishi yote (hata ya mkono yakionekana vizuri)
+                    // Tesseract inasoma maandishi sasa
                     String pageText = tesseract.doOCR(bim);
 
-                    // Andika maandishi yaliyopatikana kwenye Word Document
+                    // Andika maandishi yote yaliyopatikana kwenye Word Document
                     if (pageText != null && !pageText.trim().isEmpty()) {
                         String[] lines = pageText.split("\n");
                         for (String line : lines) {
-                            XWPFParagraph p = wordDoc.createParagraph();
-                            p.createRun().setText(line.trim());
+                            // Zuia mistari tupu isiyo na herufi
+                            if (line.trim().length() > 1) {
+                                XWPFParagraph p = wordDoc.createParagraph();
+                                p.createRun().setText(line.trim());
+                            }
                         }
                     }
                 }
             } else {
-                // Kama PDF ilikuwa na maandishi ya kawaida tangu mwanzo, yaandike kama yalivyo
-                System.out.println("[INFO] Inasoma maandishi ya kawaida yasiyo ya OCR...");
+                // Kama PDF ilikuwa na maandishi ya kawaida tangu mwanzo (Non-scanned PDF)
+                System.out.println("[INFO] Inasoma maandishi ya kawaida ya kompyuta...");
                 String[] lines = normalText.split("\n");
                 for (String line : lines) {
                     XWPFParagraph p = wordDoc.createParagraph();
@@ -362,15 +370,17 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                 }
             }
 
+            // Andika data zote kwenye stream na urudishe byte array ya Word (.docx)
             wordDoc.write(out);
             return out.toByteArray();
 
         } catch (Exception e) {
-            System.err.println("[OCR CONVERSION ERROR]: " + e.getMessage());
+            System.err.println("[CRITICAL OCR CONVERSION ERROR]: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
     }
+
 
 
 
