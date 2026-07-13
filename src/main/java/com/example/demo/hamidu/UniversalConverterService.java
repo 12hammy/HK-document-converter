@@ -291,7 +291,7 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
 
 
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Inabadilisha PDF kwenda Word - Ultimate Base64 Cloud OCR...");
+        System.out.println("[INFO] Inabadilisha PDF kwenda Word - Production JSON OCR Engine...");
 
         try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
              XWPFDocument wordDoc = new XWPFDocument();
@@ -302,37 +302,35 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
             String normalText = stripper.getText(pdfDoc);
 
             if (normalText == null || normalText.trim().isEmpty() || normalText.trim().length() < 10) {
-                System.out.println("[INFO] Inagundua: Scanned PDF/Picha. Inatuma Base64 kwenda Cloud API...");
+                System.out.println("[INFO] Inagundua: Scanned PDF/Picha. Inatuma JSON Payload...");
 
                 // Geuza PDF kuwa Base64 string safi
                 String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
-                String payload = "data:application/pdf;base64," + base64Pdf;
+                String fullBase64String = "data:application/pdf;base64," + base64Pdf;
 
-                // Tengeneza JSON Object ya kutuma kama parameters
+                // Tengeneza JSON body safi ya kutuma kwenye API
+                JSONObject jsonParam = new JSONObject();
+                jsonParam.put("apikey", "helloworld");
+                jsonParam.put("language", "eng"); // Inasoma na herufi za Kiswahili
+                jsonParam.put("isHandwritten", true);
+                jsonParam.put("OcrEngine", 2);
+                jsonParam.put("base64Image", fullBase64String);
+
                 URL url = new URL("https://ocr.space");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("POST");
                 conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                // MABORESHO MAKUBWA: Badilisha Content-Type kuwa application/json
+                conn.setRequestProperty("Content-Type", "application/json");
 
-                // Vigezo safi vya kutuma (Lugha ni Kiingereza inayohimili na herufi za Kiswahili)
-                String postData = "apikey=helloworld" +
-                        "&language=eng" +
-                        "&isHandwritten=true" +
-                        "&OcrEngine=2" +
-                        "&base64Image=" + URLEncoder.encode(payload, "UTF-8");
-
-                // Tupa data kwenye mtandao
+                // Tupa JSON kwenye mtandao
                 try (OutputStream os = conn.getOutputStream()) {
-                    os.write(postData.getBytes(StandardCharsets.UTF_8));
+                    os.write(jsonParam.toString().getBytes(StandardCharsets.UTF_8));
                     os.flush();
                 }
 
-                // Usomaji salama unaozuia kabisa NullPointerException
-                InputStream is = conn.getInputStream();
-                if (is == null) {
-                    is = conn.getErrorStream();
-                }
+                // Usomaji salama wa majibu ya mtandao
+                InputStream is = (conn.getResponseCode() >= 400) ? conn.getErrorStream() : conn.getInputStream();
 
                 if (is != null) {
                     try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
@@ -376,7 +374,7 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
             return out.toByteArray();
 
         } catch (Exception e) {
-            System.err.println("[CRITICAL BASE64 OCR ERROR]: " + e.getMessage());
+            System.err.println("[CRITICAL JSON OCR ERROR]: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
