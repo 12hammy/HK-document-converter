@@ -14,10 +14,14 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 
-import net.sourceforge.tess4j.Tesseract;
-import org.apache.pdfbox.rendering.PDFRenderer;
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import org.json.JSONObject; // Hakikisha unayo maktaba ya JSON, kama huna tutaiweka chini
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 
@@ -286,84 +290,68 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
     }
 
 
-
-
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Inabadilisha PDF kwenda Word kwa kutumia Advanced OCR (English + Swahili)...");
+        System.out.println("[INFO] Inabadilisha PDF kwenda Word kwa kutumia OCR.space API Cloud...");
 
         try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
              XWPFDocument wordDoc = new XWPFDocument();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
-            // 1. Jaribu kwanza kusoma kwa njia ya kawaida (Kama ni PDF ya maandishi ya kompyuta)
+            // 1. Jaribu kusoma maandishi ya kawaida kwanza
             org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
             String normalText = stripper.getText(pdfDoc);
 
-            // 2. Kama PDF haina maandishi ya kawaida (ni picha au mwandiko wa mkono), washa OCR yenye nguvu
             if (normalText == null || normalText.trim().isEmpty()) {
-                System.out.println("[INFO] PDF haina maandishi ya kawaida. Inasafisha picha na kuwasha OCR...");
+                System.out.println("[INFO] PDF ni picha/mwandiko. Inatuma kwenye Cloud OCR API...");
 
-                PDFRenderer pdfRenderer = new PDFRenderer(pdfDoc);
-                Tesseract tesseract = new Tesseract();
+                // Geuza PDF yote kuwa Base64 ili tuitume kwenye API ya mtandao
+                String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
+                String base64Param = "data:application/pdf;base64," + base64Pdf;
 
-                // Kagua mfumo ili kuweka njia sahihi ya mafaili ya lugha
-                String os = System.getProperty("os.name").toLowerCase();
-                if (!os.contains("win")) {
-                    // Java itatafuta folda la lugha kila sehemu inayoweza kuwepo Render (Linux)
-                    File path1 = new File("/usr/share/tesseract-ocr/5/tessdata");
-                    File path2 = new File("/usr/share/tesseract-ocr/4.00/tessdata");
-                    File path3 = new File("/usr/share/tesseract-ocr/tessdata");
-                    File path4 = new File("/usr/tessdata");
+                // Tengeneza muunganisho wa kwenda OCR.space (Hapa tunatumia API Key ya bure ya majaribio)
+                URL url = new URL("https://ocr.space");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
 
-                    if (path1.exists()) {
-                        tesseract.setDatapath(path1.getAbsolutePath());
-                    } else if (path2.exists()) {
-                        tesseract.setDatapath(path2.getAbsolutePath());
-                    } else if (path3.exists()) {
-                        tesseract.setDatapath(path3.getAbsolutePath());
-                    } else if (path4.exists()) {
-                        tesseract.setDatapath(path4.getAbsolutePath());
-                    } else {
-                        tesseract.setDatapath("/usr/share/tesseract-ocr/tessdata");
-                    }
-                } else {
-                    // Kwa ajili ya kompyuta yako ya Windows (Localy)
-                    tesseract.setDatapath("C:\\Program Files\\Tesseract-OCR\\tessdata");
+                // Vigezo vya kutuma: Lugha ni Kiswahili na Kiingereza, na tunataka isome mwandiko (isHandwritten)
+                String postData = "apikey=helloworld" + // Hii ni API key ya bure ya majaribio ya kila mtu
+                        "&language=eng" +    // Unaweza kuweka 'eng' au 'swa' (Kama mwandiko ni wa mkono weka eng kwanza)
+                        "&isHandwritten=true" +
+                        "&base64Image=" + URLEncoder.encode(base64Param, "UTF-8");
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(postData.getBytes(StandardCharsets.UTF_8));
+                    os.flush();
                 }
 
-                // MABORESHO YAKO: Sasa inasoma Kiingereza na Kiswahili kwa pamoja!
-                tesseract.setLanguage("eng+swa");
+                // Soma majibu yanayorudi kutoka Cloud
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                    StringBuilder response = new StringBuilder();
+                    String responseLine;
+                    while ((responseLine = br.readLine()) != null) {
+                        response.append(responseLine.trim());
+                    }
 
-                // Panga mfumo wa kusoma mistari kiotomatiki (Auto Page Segmentation)
-                tesseract.setPageSegMode(3);
+                    // Kuchambua JSON inayorudi ili kupata maandishi yaliyosomwa
+                    JSONObject jsonResponse = new JSONObject(response.toString());
+                    if (jsonResponse.has("ParsedResults")) {
+                        org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
+                        for (int i = 0; i < parsedResults.length(); i++) {
+                            String parsedText = parsedResults.getJSONObject(i).getString("ParsedText");
 
-                // Piga picha na usome kila ukurasa wa PDF
-                for (int page = 0; page < pdfDoc.getNumberOfPages(); page++) {
-                    System.out.println("[INFO] Inasoma ukurasa wa " + (page + 1) + " kwa ubora wa 400 DPI...");
-
-                    // MABORESHO YA BINARY: Geuza ukurasa kuwa picha kubwa sana yenye weusi na weupe uliokolezwa (BINARY)
-                    // Hii inaondoa madoadoa ya karatasi na vivuli vya giza ili mwandiko uonekane vizuri
-                    // MSTARI MPYA (Mwepesi kwa Render RAM ila unaona herufi):
-                    BufferedImage bim = pdfRenderer.renderImageWithDPI(page, 150, org.apache.pdfbox.rendering.ImageType.RGB);
-
-
-                    // Tesseract inasoma maandishi sasa
-                    String pageText = tesseract.doOCR(bim);
-
-                    // Andika maandishi yote yaliyopatikana kwenye Word Document
-                    if (pageText != null && !pageText.trim().isEmpty()) {
-                        String[] lines = pageText.split("\n");
-                        for (String line : lines) {
-                            // Zuia mistari tupu isiyo na herufi
-                            if (line.trim().length() > 1) {
-                                XWPFParagraph p = wordDoc.createParagraph();
-                                p.createRun().setText(line.trim());
+                            if (parsedText != null && !parsedText.trim().isEmpty()) {
+                                String[] lines = parsedText.split("\r\n|\n");
+                                for (String line : lines) {
+                                    XWPFParagraph p = wordDoc.createParagraph();
+                                    p.createRun().setText(line.trim());
+                                }
                             }
                         }
                     }
                 }
             } else {
-                // Kama PDF ilikuwa na maandishi ya kawaida tangu mwanzo (Non-scanned PDF)
                 System.out.println("[INFO] Inasoma maandishi ya kawaida ya kompyuta...");
                 String[] lines = normalText.split("\n");
                 for (String line : lines) {
@@ -372,12 +360,11 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                 }
             }
 
-            // Andika data zote kwenye stream na urudishe byte array ya Word (.docx)
             wordDoc.write(out);
             return out.toByteArray();
 
         } catch (Exception e) {
-            System.err.println("[CRITICAL OCR CONVERSION ERROR]: " + e.getMessage());
+            System.err.println("[CRITICAL API OCR ERROR]: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
