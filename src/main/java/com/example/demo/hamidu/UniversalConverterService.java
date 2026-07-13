@@ -291,92 +291,72 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
 
 
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Inabadilisha PDF kwenda Word - Ultimate Scanned & OCR Engine...");
+        System.out.println("[INFO] Inabadilisha PDF kwenda Word - Ultimate Base64 Cloud OCR...");
 
         try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
              XWPFDocument wordDoc = new XWPFDocument();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
-            // 1. KAGUA MAANDISHI: Angalia kama PDF ina maandishi ya kawaida ya kompyuta
+            // 1. Kagua maandishi ya kawaida kwanza
             org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
             String normalText = stripper.getText(pdfDoc);
 
-            // Kama PDF haina maandishi (ni SCANNED PDF, PICHA, au MWANDIKO WA MKONO)
             if (normalText == null || normalText.trim().isEmpty() || normalText.trim().length() < 10) {
-                System.out.println("[INFO] Inagundua: Hii ni Scanned PDF au Picha. Inawasha Cloud OCR...");
+                System.out.println("[INFO] Inagundua: Scanned PDF/Picha. Inatuma Base64 kwenda Cloud API...");
 
-                String boundary = "===" + System.currentTimeMillis() + "===";
+                // Geuza PDF kuwa Base64 string safi
+                String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
+                String payload = "data:application/pdf;base64," + base64Pdf;
+
+                // Tengeneza JSON Object ya kutuma kama parameters
                 URL url = new URL("https://ocr.space");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setDoOutput(true);
-                conn.setDoInput(true);
                 conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
 
-                try (OutputStream outputStream = conn.getOutputStream();
-                     PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), true)) {
+                // Vigezo safi vya kutuma (Lugha ni Kiingereza inayohimili na herufi za Kiswahili)
+                String postData = "apikey=helloworld" +
+                        "&language=eng" +
+                        "&isHandwritten=true" +
+                        "&OcrEngine=2" +
+                        "&base64Image=" + URLEncoder.encode(payload, "UTF-8");
 
-                    // VIGEZO VYA KIJESHI VYA API:
-                    // A. Weka API Key ya bure (Helloworld)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"apikey\"\r\n\r\n");
-                    writer.append("helloworld").append("\r\n");
-
-                    // B. LUGHA: 'eng' ndio injini mama inayosoma herufi zote za Kiswahili na Kiingereza kwa usahihi kwenye mwandiko
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n");
-                    writer.append("eng").append("\r\n");
-
-                    // C. MWANDIKO WA MKONO: Washa 'true' ili isome hadi maandishi yaliyoongezwa kwa mkono
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"isHandwritten\"\r\n\r\n");
-                    writer.append("true").append("\r\n");
-
-                    // D. MFUMO WA SCANNED: Lazimisha API ifanye usafishaji wa picha iliyoskaniwa (OcrEngine=2 ni bora kwa scanned docs)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"OcrEngine\"\r\n\r\n");
-                    writer.append("2").append("\r\n");
-
-                    // E. Tupa lile faili lenyewe la PDF (Hapa ndipo Scanned PDF inapoingizwa)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"file\"; filename=\"scanned_document.pdf\"\r\n");
-                    writer.append("Content-Type: application/pdf\r\n\r\n");
-                    writer.flush();
-
-                    outputStream.write(pdfBytes);
-                    outputStream.flush();
-
-                    writer.append("\r\n");
-                    writer.append("--").append(boundary).append("--").append("\r\n");
-                    writer.flush();
+                // Tupa data kwenye mtandao
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(postData.getBytes(StandardCharsets.UTF_8));
+                    os.flush();
                 }
 
-                // Kagua kama kuna majibu salama au makosa kutoka kwenye server
-                InputStream is = (conn.getResponseCode() >= 400) ? conn.getErrorStream() : conn.getInputStream();
+                // Usomaji salama unaozuia kabisa NullPointerException
+                InputStream is = conn.getInputStream();
+                if (is == null) {
+                    is = conn.getErrorStream();
+                }
 
-                try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                    StringBuilder response = new StringBuilder();
-                    String responseLine;
-                    while ((responseLine = br.readLine()) != null) {
-                        response.append(responseLine.trim());
-                    }
+                if (is != null) {
+                    try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                        StringBuilder response = new StringBuilder();
+                        String responseLine;
+                        while ((responseLine = br.readLine()) != null) {
+                            response.append(responseLine.trim());
+                        }
 
-                    System.out.println("[API PRODUCTION RESPONSE]: " + response.toString());
+                        System.out.println("[API RESPONSE]: " + response.toString());
 
-                    // Kuchambua JSON na kuitupa kwenye Word
-                    JSONObject jsonResponse = new JSONObject(response.toString());
-                    if (jsonResponse.has("ParsedResults")) {
-                        org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
-                        for (int i = 0; i < parsedResults.length(); i++) {
-                            String parsedText = parsedResults.getJSONObject(i).getString("ParsedText");
+                        JSONObject jsonResponse = new JSONObject(response.toString());
+                        if (jsonResponse.has("ParsedResults")) {
+                            org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
+                            for (int i = 0; i < parsedResults.length(); i++) {
+                                String parsedText = parsedResults.getJSONObject(i).getString("ParsedText");
 
-                            if (parsedText != null && !parsedText.trim().isEmpty()) {
-                                String[] lines = parsedText.split("\r\n|\n");
-                                for (String line : lines) {
-                                    // Zuia mistari feki, andika maandishi halisi
-                                    if (line.trim().length() > 0) {
-                                        XWPFParagraph p = wordDoc.createParagraph();
-                                        p.createRun().setText(line.trim());
+                                if (parsedText != null && !parsedText.trim().isEmpty()) {
+                                    String[] lines = parsedText.split("\r\n|\n");
+                                    for (String line : lines) {
+                                        if (line.trim().length() > 0) {
+                                            XWPFParagraph p = wordDoc.createParagraph();
+                                            p.createRun().setText(line.trim());
+                                        }
                                     }
                                 }
                             }
@@ -384,7 +364,6 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                     }
                 }
             } else {
-                // Kama PDF ilikuwa na maandishi safi ya kompyuta tangu mwanzo (Mfanano wa kawaida)
                 System.out.println("[INFO] Inasoma PDF ya kawaida ya kompyuta...");
                 String[] lines = normalText.split("\n");
                 for (String line : lines) {
@@ -397,7 +376,7 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
             return out.toByteArray();
 
         } catch (Exception e) {
-            System.err.println("[CRITICAL ULTIMATE CONVERTER ERROR]: " + e.getMessage());
+            System.err.println("[CRITICAL BASE64 OCR ERROR]: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
