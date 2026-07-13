@@ -289,73 +289,66 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
         }
     }
 
-
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Washa Injini ya Mwisho: Scanned PDF & Handwritten Converter...");
+        System.out.println("[INFO] Washa Injini Salama: Fixed Stream OCR Engine...");
 
         try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
              XWPFDocument wordDoc = new XWPFDocument();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
-            // 1. Kagua maandishi ya kawaida kwanza
             org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
             String normalText = stripper.getText(pdfDoc);
 
             if (normalText == null || normalText.trim().isEmpty() || normalText.trim().length() < 10) {
-                System.out.println("[INFO] PDF ni picha au mwandiko wa mkono. Inatuma Faili halisi kwa API...");
+                System.out.println("[INFO] PDF ni picha au mwandiko. Inatuma kwa njia salama ya Bytes...");
 
-                String boundary = "CleanMultipartBoundary" + System.currentTimeMillis();
-                URL url = new URL("https://api8.ocr.space/parse/image");
+                String boundary = "CleanBoundary" + System.currentTimeMillis();
+                URL url = new URL("https://ocr.space");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setDoOutput(true);
                 conn.setDoInput(true);
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 
-                try (OutputStream os = conn.getOutputStream();
-                     PrintWriter writer = new PrintWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8), true)) {
+                try (OutputStream os = conn.getOutputStream()) {
+                    // 1. Tuma API KEY (Badilisha K87654321888 uweke Key yako ya Email)
+                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                    os.write("Content-Disposition: form-data; name=\"apikey\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                    os.write("K81976549088957\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // A. API KEY (Weka ile Key yako ya bure hapa badala ya helloworld)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"apikey\"\r\n\r\n");
-                    writer.append("K81976549088957").append("\r\n"); // <-- WEKA ILE KEY YAKO HAPA MOJA KWA MOJA!
+                    // 2. Tuma LUGHA
+                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                    os.write("Content-Disposition: form-data; name=\"language\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                    os.write("eng\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // B. LUGHA (Tumia 'eng' inayosoma herufi zote za Kilatini za Kiswahili na Kiingereza)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n");
-                    writer.append("eng").append("\r\n");
+                    // 3. Tuma IS HANDWRITTEN
+                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                    os.write("Content-Disposition: form-data; name=\"isHandwritten\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                    os.write("true\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // C. MWANDIKO WA MKONO (Washa kwa ajili ya herufi za mkono)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"isHandwritten\"\r\n\r\n");
-                    writer.append("true").append("\r\n");
+                    // 4. Tuma ENGINE
+                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                    os.write("Content-Disposition: form-data; name=\"OcrEngine\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                    os.write("2\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // D. ENGINE (OcrEngine=2 ni maalum na bora zaidi kwa Scanned PDF na mwandiko)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"OcrEngine\"\r\n\r\n");
-                    writer.append("2").append("\r\n");
+                    // 5. Tuma SCALE
+                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                    os.write("Content-Disposition: form-data; name=\"scale\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                    os.write("true\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // E. AUTO SCALE (Inasaidia kukuza na kusafisha maandishi yenye vivuli au giza)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"scale\"\r\n\r\n");
-                    writer.append("true").append("\r\n");
+                    // 6. Tuma FAILI LENYEWE LA PDF SALAMA
+                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                    os.write("Content-Disposition: form-data; name=\"file\"; filename=\"document.pdf\"\r\n".getBytes(StandardCharsets.UTF_8));
+                    os.write("Content-Type: application/pdf\r\n\r\n".getBytes(StandardCharsets.UTF_8));
 
-                    // F. TUPA FAILINA HALISI LA PDF LAKO HAPA (Sio Base64 tena)
-                    writer.append("--").append(boundary).append("\r\n");
-                    writer.append("Content-Disposition: form-data; name=\"file\"; filename=\"scanned.pdf\"\r\n");
-                    writer.append("Content-Type: application/pdf\r\n\r\n");
-                    writer.flush();
-
-                    // Andika PDF bytes moja kwa moja bila makosa
+                    // Hapa tunatupa bytes za PDF bila kuvurugwa na PrintWriter yoyote!
                     os.write(pdfBytes);
-                    os.flush();
 
-                    writer.append("\r\n");
-                    writer.append("--").append(boundary).append("--").append("\r\n");
-                    writer.flush();
+                    os.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+                    os.flush();
                 }
 
-                // Soma majibu kutoka server
+                // Soma majibu na uhakikishe tunachapa log ili tuone kama API inakubali
                 InputStream is = (conn.getResponseCode() >= 400) ? conn.getErrorStream() : conn.getInputStream();
                 if (is != null) {
                     try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
@@ -365,7 +358,8 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                             response.append(responseLine.trim());
                         }
 
-                        System.out.println("[API RESPONSE]: " + response.toString());
+                        // Hapa lazima utaona maandishi ya JSON kwenye logs za Render!
+                        System.out.println("[API FINAL RESPONSE]: " + response.toString());
 
                         JSONObject jsonResponse = new JSONObject(response.toString());
                         if (jsonResponse.has("ParsedResults")) {
@@ -399,12 +393,11 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
             return out.toByteArray();
 
         } catch (Exception e) {
-            System.err.println("[CRITICAL CONVERTER ERROR]: " + e.getMessage());
+            System.err.println("[CRITICAL FIXED OCR ERROR]: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
     }
-
 
 
 
