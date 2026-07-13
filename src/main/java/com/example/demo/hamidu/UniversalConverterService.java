@@ -315,7 +315,7 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
 
                 // TUANDIKE PARAMETERS KWA NJIA SALAMA KABISA:
                 StringBuilder postData = new StringBuilder();
-                postData.append("apikey=").append(URLEncoder.encode("helloworld", "UTF-8"));
+                postData.append("apikey=").append(URLEncoder.encode("K81976549088957", "UTF-8"));
                 postData.append("&language=").append(URLEncoder.encode("eng", "UTF-8")); // Kusoma herufi za Kilatini
                 postData.append("&isHandwritten=true");
                 postData.append("&OcrEngine=2");
