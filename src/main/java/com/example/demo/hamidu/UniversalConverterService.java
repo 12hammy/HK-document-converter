@@ -343,7 +343,9 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
 
                     // MABORESHO YA BINARY: Geuza ukurasa kuwa picha kubwa sana yenye weusi na weupe uliokolezwa (BINARY)
                     // Hii inaondoa madoadoa ya karatasi na vivuli vya giza ili mwandiko uonekane vizuri
-                    BufferedImage bim = pdfRenderer.renderImageWithDPI(page, 400, org.apache.pdfbox.rendering.ImageType.BINARY);
+                    // MSTARI MPYA (Mwepesi kwa Render RAM ila unaona herufi):
+                    BufferedImage bim = pdfRenderer.renderImageWithDPI(page, 150, org.apache.pdfbox.rendering.ImageType.RGB);
+
 
                     // Tesseract inasoma maandishi sasa
                     String pageText = tesseract.doOCR(bim);
