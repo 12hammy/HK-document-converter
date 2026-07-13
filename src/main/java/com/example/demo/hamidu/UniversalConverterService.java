@@ -290,173 +290,110 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
     }
 
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] WASHA INJINI YA MWISHO: Ultimate Multi-Fallback OCR Engine...");
+        System.out.println("[INFO] Inawasha iLovePDF REST API Engine - Hakuna SDK, Uhakika 100%...");
 
-        try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
-             XWPFDocument wordDoc = new XWPFDocument();
-             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+        // 1. ANZA SELES (START TASK): Ambia iLovePDF kuwa tunataka kuanza kazi ya pdf to word
+        // HAPA TUMEWEKA ILE KEY YAKO HALISI ULIYOIPATA
+        String publicKey = "project_public_f12d8e5abe88b67b23cae4a6b424620b_8RPw3c6cf23b25808760ba038238ba2865d6c";
 
-            // 1. Kagua kama PDF ina herufi halisi za kompyuta
-            boolean isScannedOrImage = true;
-            org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
-            String normalText = stripper.getText(pdfDoc);
+        URL startUrl = new URL("https://ilovepdf.com");
+        HttpURLConnection startConn = (HttpURLConnection) startUrl.openConnection();
+        startConn.setRequestMethod("GET");
+        startConn.setRequestProperty("Authorization", "Bearer " + publicKey);
 
-            if (normalText != null && normalText.matches(".*[a-zA-Z0-9].*")) {
-                isScannedOrImage = false;
+        if (startConn.getResponseCode() != 200) {
+            throw new RuntimeException("iLovePDF Auth Failed! Angalia kama Public Key iko sawa.");
+        }
+
+        // Soma Server na Task ID tulizopewa
+        String startResponse = "";
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(startConn.getInputStream()))) {
+            String line;
+            while ((line = br.readLine()) != null) startResponse += line;
+        }
+        org.json.JSONObject startJson = new org.json.JSONObject(startResponse);
+        String server = startJson.getString("server");
+        String taskId = startJson.getString("task");
+
+        System.out.println("[INFO] Task Imeanzishwa. Server: " + server + " | TaskID: " + taskId);
+
+        // 2. PAKIA FAILI (UPLOAD FILE): Tupa bytes za PDF kwenye server ya iLovePDF tuliyopewa
+        String boundary = "===Boundary" + System.currentTimeMillis() + "===";
+        URL uploadUrl = new URL("https://" + server + "/v1/upload");
+        HttpURLConnection uploadConn = (HttpURLConnection) uploadUrl.openConnection();
+        uploadConn.setDoOutput(true);
+        uploadConn.setRequestMethod("POST");
+        uploadConn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+
+        try (OutputStream os = uploadConn.getOutputStream()) {
+            os.write(("--" + boundary + "\r\n").getBytes());
+            os.write(("Content-Disposition: form-data; name=\"task\"\r\n\r\n" + taskId + "\r\n").getBytes());
+
+            os.write(("--" + boundary + "\r\n").getBytes());
+            os.write("Content-Disposition: form-data; name=\"file\"; filename=\"document.pdf\"\r\n".getBytes());
+            os.write("Content-Type: application/pdf\r\n\r\n".getBytes());
+            os.write(pdfBytes);
+
+            os.write(("\r\n--" + boundary + "--\r\n").getBytes());
+            os.flush();
+        }
+
+        String uploadResponse = "";
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(uploadConn.getInputStream()))) {
+            String line;
+            while ((line = br.readLine()) != null) uploadResponse += line;
+        }
+        org.json.JSONObject uploadJson = new org.json.JSONObject(uploadResponse);
+        String serverFilename = uploadJson.getString("server_filename");
+
+        System.out.println("[INFO] Faili Limepakiwa Salama Server. Filename: " + serverFilename);
+
+        // 3. CHAKATA OCR (EXECUTE TASK): Ambia mtambo uanze kuigeuza sasa kwa OCR
+        URL execUrl = new URL("https://" + server + "/v1/process");
+        HttpURLConnection execConn = (HttpURLConnection) execUrl.openConnection();
+        execConn.setDoOutput(true);
+        execConn.setRequestMethod("POST");
+        execConn.setRequestProperty("Content-Type", "application/json");
+
+        org.json.JSONObject execBody = new org.json.JSONObject();
+        execBody.put("task", taskId);
+
+        org.json.JSONObject fileObj = new org.json.JSONObject();
+        fileObj.put("server_filename", serverFilename);
+        fileObj.put("filename", "document.pdf");
+
+        org.json.JSONArray filesArray = new org.json.JSONArray();
+        filesArray.put(fileObj);
+        execBody.put("files", filesArray);
+
+        // WASHA INJINI YA OCR: Lazimisha isome mwandiko wa mkono na scanned pdf kwa ubora wa juu wa iLovePDF
+        execBody.put("ocr", true);
+
+        try (OutputStream os = execConn.getOutputStream()) {
+            os.write(execBody.toString().getBytes("UTF-8"));
+            os.flush();
+        }
+
+        if (execConn.getResponseCode() != 200) {
+            throw new RuntimeException("iLovePDF Execution Failed wakati wa kuchakata OCR.");
+        }
+
+        System.out.println("[INFO] OCR Imekamilika Kule Cloud. Inaanza Kupakua Word...");
+
+        // 4. PAKUA FAILI LA WORD (DOWNLOAD FILE)
+        URL downloadUrl = new URL("https://" + server + "/v1/download/" + taskId);
+        HttpURLConnection downloadConn = (HttpURLConnection) downloadUrl.openConnection();
+        downloadConn.setRequestMethod("GET");
+
+        try (InputStream is = downloadConn.getInputStream();
+             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = is.read(buffer)) != -1) {
+                bos.write(buffer, 0, bytesRead);
             }
-
-            StringBuilder finalExtractedText = new StringBuilder();
-
-            // 2. KAMA NI PICHA AU SCANNED PDF - WASHA MTEGO WA KWANZA WA OCR
-            if (isScannedOrImage) {
-                System.out.println("[INFO] Imethibitishwa: Scanned PDF. Inawasha MTEGO WA 1 (Multipart PDF Stream)...");
-
-                String boundary = "CleanBoundary" + System.currentTimeMillis();
-                URL url = new URL("https://ocr.space");
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setDoOutput(true);
-                conn.setDoInput(true);
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                    os.write("Content-Disposition: form-data; name=\"apikey\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-                    os.write("K81976549088957\r\n".getBytes(StandardCharsets.UTF_8)); // API KEY YAKO HALISI
-
-                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                    os.write("Content-Disposition: form-data; name=\"language\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-                    os.write("eng\r\n".getBytes(StandardCharsets.UTF_8));
-
-                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                    os.write("Content-Disposition: form-data; name=\"isHandwritten\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-                    os.write("true\r\n".getBytes(StandardCharsets.UTF_8));
-
-                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                    os.write("Content-Disposition: form-data; name=\"OcrEngine\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-                    os.write("2\r\n".getBytes(StandardCharsets.UTF_8));
-
-                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                    os.write("Content-Disposition: form-data; name=\"scale\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-                    os.write("true\r\n".getBytes(StandardCharsets.UTF_8));
-
-                    os.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                    os.write("Content-Disposition: form-data; name=\"file\"; filename=\"document.pdf\"\r\n".getBytes(StandardCharsets.UTF_8));
-                    os.write("Content-Type: application/pdf\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-
-                    os.write(pdfBytes);
-                    os.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-                    os.flush();
-                }
-
-                InputStream is = (conn.getResponseCode() >= 400) ? conn.getErrorStream() : conn.getInputStream();
-                if (is != null) {
-                    try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                        StringBuilder response = new StringBuilder();
-                        String responseLine;
-                        while ((responseLine = br.readLine()) != null) {
-                            response.append(responseLine.trim());
-                        }
-
-                        JSONObject jsonResponse = new JSONObject(response.toString());
-                        if (jsonResponse.has("ParsedResults")) {
-                            org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
-                            for (int i = 0; i < parsedResults.length(); i++) {
-                                String parsedText = parsedResults.getJSONObject(i).getString("ParsedText");
-                                if (parsedText != null && !parsedText.trim().isEmpty()) {
-                                    finalExtractedText.append(parsedText);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 3. MTEGO WA ZIADA (FALLBACK): Kama njia ya kwanza imerudisha tupu kabisa, washa Mtego wa Pili wa Picha!
-                if (finalExtractedText.toString().trim().isEmpty()) {
-                    System.out.println("[WARN] MTEGO WA 1 UMERUDISHA TUPU! Inawasha MTEGO WA 2 (Image-Render API Fallback)...");
-
-                    org.apache.pdfbox.rendering.PDFRenderer pdfRenderer = new org.apache.pdfbox.rendering.PDFRenderer(pdfDoc);
-                    // Geuza ukurasa wa 1 kuwa picha nyepesi isiyozima RAM ya Render (150 DPI RGB)
-                    java.awt.image.BufferedImage bim = pdfRenderer.renderImageWithDPI(0, 150, org.apache.pdfbox.rendering.ImageType.RGB);
-
-                    ByteArrayOutputStream imageStream = new ByteArrayOutputStream();
-                    javax.imageio.ImageIO.write(bim, "jpg", imageStream);
-                    String base64Image = Base64.getEncoder().encodeToString(imageStream.toByteArray());
-
-                    URL fallbackUrl = new URL("https://ocr.space");
-                    HttpURLConnection fallbackConn = (HttpURLConnection) fallbackUrl.openConnection();
-                    fallbackConn.setRequestMethod("POST");
-                    fallbackConn.setDoOutput(true);
-                    fallbackConn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-
-                    StringBuilder postData = new StringBuilder();
-                    postData.append("apikey=").append(URLEncoder.encode("K81976549088957", "UTF-8"));
-                    postData.append("&language=").append(URLEncoder.encode("eng", "UTF-8"));
-                    postData.append("&isHandwritten=true");
-                    postData.append("&OcrEngine=2");
-                    postData.append("&base64Image=").append(URLEncoder.encode("data:image/jpeg;base64," + base64Image, "UTF-8"));
-
-                    byte[] postDataBytes = postData.toString().getBytes(StandardCharsets.UTF_8);
-                    fallbackConn.setRequestProperty("Content-Length", String.valueOf(postDataBytes.length));
-
-                    try (OutputStream os = fallbackConn.getOutputStream()) {
-                        os.write(postDataBytes);
-                        os.flush();
-                    }
-
-                    InputStream fis = (fallbackConn.getResponseCode() >= 400) ? fallbackConn.getErrorStream() : fallbackConn.getInputStream();
-                    if (fis != null) {
-                        try (BufferedReader br = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8))) {
-                            StringBuilder response = new StringBuilder();
-                            String responseLine;
-                            while ((responseLine = br.readLine()) != null) {
-                                response.append(responseLine.trim());
-                            }
-
-                            JSONObject jsonResponse = new JSONObject(response.toString());
-                            if (jsonResponse.has("ParsedResults")) {
-                                org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
-                                for (int i = 0; i < parsedResults.length(); i++) {
-                                    String parsedText = parsedResults.getJSONObject(i).getString("ParsedText");
-                                    if (parsedText != null && !parsedText.trim().isEmpty()) {
-                                        finalExtractedText.append(parsedText);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Andika maandishi yote yaliyopatikana (Kutoka mtego wa 1 au wa 2) kwenda kwenye Word
-                if (finalExtractedText.length() > 0) {
-                    String[] lines = finalExtractedText.toString().split("\r\n|\n");
-                    for (String line : lines) {
-                        if (line.trim().length() > 0) {
-                            XWPFParagraph p = wordDoc.createParagraph();
-                            p.createRun().setText(line.trim());
-                        }
-                    }
-                }
-
-            } else {
-                // Kama PDF ina maandishi safi ya kompyuta tangu mwanzo
-                System.out.println("[INFO] Inasoma PDF ya kawaida yenye herufi za kompyuta...");
-                String[] lines = normalText.split("\n");
-                for (String line : lines) {
-                    if (line.trim().length() > 0) {
-                        XWPFParagraph p = wordDoc.createParagraph();
-                        p.createRun().setText(line.trim());
-                    }
-                }
-            }
-
-            wordDoc.write(out);
-            return out.toByteArray();
-
-        } catch (Exception e) {
-            System.err.println("[CRITICAL FIXED OCR ERROR]: " + e.getMessage());
-            e.printStackTrace();
-            throw e;
+            System.out.println("[SUCCESS] Faili la Word la iLovePDF Liko Tayari!");
+            return bos.toByteArray();
         }
     }
 
