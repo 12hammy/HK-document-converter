@@ -6,7 +6,7 @@ RUN mvn clean package -DskipTests
 # --- Run Stage ---
 FROM eclipse-temurin:21-jdk
 
-# ONGEZEO: Sakinisha Tesseract OCR na mifumo ya Fonts ndani ya Java 21 ya Linux (Render)
+# SULUHISHO SAHIHI: Sakinisha Tesseract, Fonts, na uhakikishe faili la eng.traineddata lipo mahali sahihi
 RUN apt-get update && apt-get install -y \
     fontconfig \
     fonts-dejavu \

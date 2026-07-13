@@ -305,13 +305,32 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
 
                 PDFRenderer pdfRenderer = new PDFRenderer(pdfDoc);
                 Tesseract tesseract = new Tesseract();
-
-                // Angalia kama tupo Render (Linux) au Local (Windows) ili kuweka njia sahihi ya Tesseract
                 String os = System.getProperty("os.name").toLowerCase();
+
                 if (!os.contains("win")) {
-                    // Hii ni njia ya Tesseract kwenye Linux (Render)
-                    tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
+                    // NJIA MPYA ILIYOBORESHWA: Java itatafuta folda la lugha kila sehemu inayoweza kuwepo Render
+                    File path1 = new File("/usr/share/tesseract-ocr/5/tessdata");
+                    File path2 = new File("/usr/share/tesseract-ocr/4.00/tessdata");
+                    File path3 = new File("/usr/share/tesseract-ocr/tessdata");
+                    File path4 = new File("/usr/tessdata");
+
+                    if (path1.exists()) {
+                        tesseract.setDatapath(path1.getAbsolutePath());
+                    } else if (path2.exists()) {
+                        tesseract.setDatapath(path2.getAbsolutePath());
+                    } else if (path3.exists()) {
+                        tesseract.setDatapath(path3.getAbsolutePath());
+                    } else if (path4.exists()) {
+                        tesseract.setDatapath(path4.getAbsolutePath());
+                    } else {
+                        // Kama ikikosa kabisa, iangalie folda la kawaida la Linux
+                        tesseract.setDatapath("/usr/share/tesseract-ocr/tessdata");
+                    }
+                } else {
+                    // Kwa ajili ya kompyuta yako ya Windows (Localy)
+                    tesseract.setDatapath("C:\\Program Files\\Tesseract-OCR\\tessdata");
                 }
+
                 tesseract.setLanguage("eng"); // Kusoma lugha ya Kiingereza / Namba
 
                 // Piga picha kila ukurasa wa PDF na usome maandishi yaliyomo
