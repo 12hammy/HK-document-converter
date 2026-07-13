@@ -367,7 +367,10 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
         execBody.put("files", filesArray);
 
         // WASHA INJINI YA OCR: Lazimisha isome mwandiko wa mkono na scanned pdf kwa ubora wa juu wa iLovePDF
+        // SULUHISHO: Ambia iLovePDF kuwa hii ni Scanned PDF na iwashe OCR kwa lugha ya Kiingereza/Kiswahili
         execBody.put("ocr", true);
+        execBody.put("language", "eng"); // 'eng' ndio injini mama inayochambua pastpapers na mwandiko vizuri mno!
+
 
         try (OutputStream os = execConn.getOutputStream()) {
             os.write(execBody.toString().getBytes("UTF-8"));
