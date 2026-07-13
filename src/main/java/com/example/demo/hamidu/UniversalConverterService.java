@@ -14,6 +14,14 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 
+import net.sourceforge.tess4j.Tesseract;
+import org.apache.pdfbox.rendering.PDFRenderer;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+
+
 @Service
 public class UniversalConverterService {
 
@@ -277,13 +285,75 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
         }
     }
 
+
+
+
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        try (PDDocument pdfDoc = PDDocument.load(pdfBytes); XWPFDocument wordDoc = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            String[] lines = new PDFTextStripper().getText(pdfDoc).split("\n");
-            for (String line : lines) { wordDoc.createParagraph().createRun().setText(line.trim()); }
-            wordDoc.write(out); return out.toByteArray();
+        System.out.println("[INFO] Inabadilisha PDF kwenda Word kwa kutumia OCR...");
+
+        try (PDDocument pdfDoc = PDDocument.load(new ByteArrayInputStream(pdfBytes));
+             XWPFDocument wordDoc = new XWPFDocument();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            // Jaribu kwanza kusoma kwa njia ya kawaida (Kama ni PDF ya maandishi safi)
+            PDFTextStripper stripper = new PDFTextStripper();
+            String normalText = stripper.getText(pdfDoc);
+
+            // Kama PDF haina maandishi ya kawaida (ni picha tupu au ya mkono), tumia OCR!
+            if (normalText == null || normalText.trim().isEmpty()) {
+                System.out.println("[INFO] PDF haina maandishi ya kawaida. Inaanza kuchakata kurasa kwa OCR...");
+
+                PDFRenderer pdfRenderer = new PDFRenderer(pdfDoc);
+                Tesseract tesseract = new Tesseract();
+
+                // Angalia kama tupo Render (Linux) au Local (Windows) ili kuweka njia sahihi ya Tesseract
+                String os = System.getProperty("os.name").toLowerCase();
+                if (!os.contains("win")) {
+                    // Hii ni njia ya Tesseract kwenye Linux (Render)
+                    tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
+                }
+                tesseract.setLanguage("eng"); // Kusoma lugha ya Kiingereza / Namba
+
+                // Piga picha kila ukurasa wa PDF na usome maandishi yaliyomo
+                for (int page = 0; page < pdfDoc.getNumberOfPages(); page++) {
+                    System.out.println("[INFO] Inasoma ukurasa wa " + (page + 1) + " kwa OCR...");
+
+                    // Geuza ukurasa kuwa picha yenye ubora wa 300 DPI (Safi kwa OCR)
+                    BufferedImage bim = pdfRenderer.renderImageWithDPI(page, 300);
+
+                    // Tesseract inasoma maandishi yote (hata ya mkono yakionekana vizuri)
+                    String pageText = tesseract.doOCR(bim);
+
+                    // Andika maandishi yaliyopatikana kwenye Word Document
+                    if (pageText != null && !pageText.trim().isEmpty()) {
+                        String[] lines = pageText.split("\n");
+                        for (String line : lines) {
+                            XWPFParagraph p = wordDoc.createParagraph();
+                            p.createRun().setText(line.trim());
+                        }
+                    }
+                }
+            } else {
+                // Kama PDF ilikuwa na maandishi ya kawaida tangu mwanzo, yaandike kama yalivyo
+                System.out.println("[INFO] Inasoma maandishi ya kawaida yasiyo ya OCR...");
+                String[] lines = normalText.split("\n");
+                for (String line : lines) {
+                    XWPFParagraph p = wordDoc.createParagraph();
+                    p.createRun().setText(line.trim());
+                }
+            }
+
+            wordDoc.write(out);
+            return out.toByteArray();
+
+        } catch (Exception e) {
+            System.err.println("[OCR CONVERSION ERROR]: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
         }
     }
+
+
 
     private byte[] convertWordToPdf(byte[] docxBytes) throws Exception {
         try (XWPFDocument wordDoc = new XWPFDocument(new ByteArrayInputStream(docxBytes)); PDDocument pdfDoc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
