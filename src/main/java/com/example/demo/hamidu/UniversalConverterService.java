@@ -291,7 +291,7 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
 
 
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Inabadilisha PDF kwenda Word kwa kutumia OCR.space API Cloud...");
+        System.out.println("[INFO] Inabadilisha PDF kwenda Word kwa kutumia Multipart Cloud OCR API...");
 
         try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
              XWPFDocument wordDoc = new XWPFDocument();
@@ -302,28 +302,46 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
             String normalText = stripper.getText(pdfDoc);
 
             if (normalText == null || normalText.trim().isEmpty()) {
-                System.out.println("[INFO] PDF ni picha/mwandiko. Inatuma kwenye Cloud OCR API...");
+                System.out.println("[INFO] PDF ni picha/mwandiko. Inatuma kwa njia ya Multipart POST...");
 
-                // Geuza PDF yote kuwa Base64 ili tuitume kwenye API ya mtandao
-                String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
-                String base64Param = "data:application/pdf;base64," + base64Pdf;
-
-                // Tengeneza muunganisho wa kwenda OCR.space (Hapa tunatumia API Key ya bure ya majaribio)
+                String boundary = "===" + System.currentTimeMillis() + "===";
                 URL url = new URL("https://ocr.space");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
                 conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                conn.setDoInput(true);
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 
-                // Vigezo vya kutuma: Lugha ni Kiswahili na Kiingereza, na tunataka isome mwandiko (isHandwritten)
-                String postData = "apikey=helloworld" + // Hii ni API key ya bure ya majaribio ya kila mtu
-                        "&language=eng" +    // Unaweza kuweka 'eng' au 'swa' (Kama mwandiko ni wa mkono weka eng kwanza)
-                        "&isHandwritten=true" +
-                        "&base64Image=" + URLEncoder.encode(base64Param, "UTF-8");
+                try (OutputStream outputStream = conn.getOutputStream();
+                     PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), true)) {
 
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(postData.getBytes(StandardCharsets.UTF_8));
-                    os.flush();
+                    // Weka API Key ya bure (Helloworld)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"apikey\"\r\n\r\n");
+                    writer.append("helloworld").append("\r\n");
+
+                    // Weka Lugha (eng au swa - kuweka eng inasaidia mwandiko wa mkono vizuri)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n");
+                    writer.append("eng").append("\r\n");
+
+                    // Waambie kuwa kuna mwandiko wa mkono (Handwritten)
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"isHandwritten\"\r\n\r\n");
+                    writer.append("true").append("\r\n");
+
+                    // Tupa lile faili lenyewe la PDF kama Bytes bila kujali jina lake lina nafasi tupu au la
+                    writer.append("--").append(boundary).append("\r\n");
+                    writer.append("Content-Disposition: form-data; name=\"file\"; filename=\"document.pdf\"\r\n");
+                    writer.append("Content-Type: application/pdf\r\n\r\n");
+                    writer.flush();
+
+                    outputStream.write(pdfBytes);
+                    outputStream.flush();
+
+                    writer.append("\r\n");
+                    writer.append("--").append(boundary).append("--").append("\r\n");
+                    writer.flush();
                 }
 
                 // Soma majibu yanayorudi kutoka Cloud
@@ -334,7 +352,7 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
                         response.append(responseLine.trim());
                     }
 
-                    // Kuchambua JSON inayorudi ili kupata maandishi yaliyosomwa
+                    // Kuchambua JSON
                     JSONObject jsonResponse = new JSONObject(response.toString());
                     if (jsonResponse.has("ParsedResults")) {
                         org.json.JSONArray parsedResults = jsonResponse.getJSONArray("ParsedResults");
@@ -364,12 +382,11 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
             return out.toByteArray();
 
         } catch (Exception e) {
-            System.err.println("[CRITICAL API OCR ERROR]: " + e.getMessage());
+            System.err.println("[CRITICAL API MULTIPART ERROR]: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
     }
-
 
 
 
