@@ -291,7 +291,7 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
 
 
     private byte[] convertPdfToWord(byte[] pdfBytes) throws Exception {
-        System.out.println("[INFO] Inabadilisha PDF kwenda Word - Production JSON OCR Engine...");
+        System.out.println("[INFO] Inabadilisha PDF kwenda Word - Final UrlEncoded OCR Engine...");
 
         try (org.apache.pdfbox.pdmodel.PDDocument pdfDoc = org.apache.pdfbox.pdmodel.PDDocument.load(new ByteArrayInputStream(pdfBytes));
              XWPFDocument wordDoc = new XWPFDocument();
@@ -302,34 +302,35 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
             String normalText = stripper.getText(pdfDoc);
 
             if (normalText == null || normalText.trim().isEmpty() || normalText.trim().length() < 10) {
-                System.out.println("[INFO] Inagundua: Scanned PDF/Picha. Inatuma JSON Payload...");
+                System.out.println("[INFO] Inagundua: Scanned PDF/Picha. Inatuma kwa UrlEncoded POST...");
 
-                // Geuza PDF kuwa Base64 string safi
+                // Geuza PDF kuwa Base64 string ya kawaida tu bila kuweka lile neno "data:application/pdf" mbele
                 String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
-                String fullBase64String = "data:application/pdf;base64," + base64Pdf;
 
-                // Tengeneza JSON body safi ya kutuma kwenye API
-                JSONObject jsonParam = new JSONObject();
-                jsonParam.put("apikey", "helloworld");
-                jsonParam.put("language", "eng"); // Inasoma na herufi za Kiswahili
-                jsonParam.put("isHandwritten", true);
-                jsonParam.put("OcrEngine", 2);
-                jsonParam.put("base64Image", fullBase64String);
-
-                URL url = new URL("https://ocr.space");
+                URL url = new URL("https://api8.ocr.space/parse/image");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("POST");
                 conn.setDoOutput(true);
-                // MABORESHO MAKUBWA: Badilisha Content-Type kuwa application/json
-                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
 
-                // Tupa JSON kwenye mtandao
+                // TUANDIKE PARAMETERS KWA NJIA SALAMA KABISA:
+                StringBuilder postData = new StringBuilder();
+                postData.append("apikey=").append(URLEncoder.encode("helloworld", "UTF-8"));
+                postData.append("&language=").append(URLEncoder.encode("eng", "UTF-8")); // Kusoma herufi za Kilatini
+                postData.append("&isHandwritten=true");
+                postData.append("&OcrEngine=2");
+                postData.append("&base64Image=").append(URLEncoder.encode("data:application/pdf;base64," + base64Pdf, "UTF-8"));
+
+                // Tupa bytes kwenye mtandao
+                byte[] postDataBytes = postData.toString().getBytes(StandardCharsets.UTF_8);
+                conn.setRequestProperty("Content-Length", String.valueOf(postDataBytes.length));
+
                 try (OutputStream os = conn.getOutputStream()) {
-                    os.write(jsonParam.toString().getBytes(StandardCharsets.UTF_8));
+                    os.write(postDataBytes);
                     os.flush();
                 }
 
-                // Usomaji salama wa majibu ya mtandao
+                // Usomaji salama wa majibu
                 InputStream is = (conn.getResponseCode() >= 400) ? conn.getErrorStream() : conn.getInputStream();
 
                 if (is != null) {
@@ -374,7 +375,7 @@ private byte[] convertPdfToExcel(byte[] pdfBytes) throws Exception {
             return out.toByteArray();
 
         } catch (Exception e) {
-            System.err.println("[CRITICAL JSON OCR ERROR]: " + e.getMessage());
+            System.err.println("[CRITICAL FIXED OCR ERROR]: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
